@@ -239,3 +239,118 @@ softmax normalization, monotonicity, zero-score uniform fallback,
 determinism under seeded RNG, and recency penalty. Boot smoke confirms
 the orchestrator idles until `POST /api/session/start`, ticks cleanly,
 and recovers from transient Ollama outages.
+
+---
+
+## D-017: Real 2024-2028 roster replaces fictional seed data
+
+**Context**: D-014 committed to a fictional four-party, seven-MP seed for
+Sprint 0 to unblock the FSM. That placeholder is now replaced with the
+actual Macedonian 2024-2028 parliamentary session.
+
+**Decision**: Real mode is the default (and currently only) mode.
+Fictional or sanitized-party modes become a future toggle only if a
+concrete need arises; we will not maintain both in parallel.
+
+**Source of truth**: `sobranie.mk` live site, via the JSON endpoint
+`POST https://www.sobranie.mk/Routing/MakePostRequest` with
+`{"methodName":"GetParliamentMPsNoImage","StructureId":"5e00dbd6-ca3c-4d97-b748-f792b2fa3473","page":1,"rows":200,...}`.
+The captured response is persisted at
+`scripts/mps-with-parties.raw.json` (17 MB; includes base64 portrait
+images despite the endpoint name) and distilled into
+`scripts/mps-with-parties.slim.json` (120 MPs; `UserId`, `FullName`,
+`PoliticalPartyTitle`, `PoliticalPartyId`, `Coalition`, `Constituency`,
+`DateOfBirth`, `Gender`).
+
+**Why not the CKAN open-data feed**: The open-data feed
+`pratenici-2024-2028.json` is stale - 7 of its 120 `UserId`s no longer
+match current sitting MPs (replaced after resignations / ministerial
+appointments) and 25 entries have a blank `PoliticalPartyTitle`. Even on
+the 113 overlapping MPs, the CKAN party labels disagree with the live
+site in 8 cases, most of which conflate an electoral coalition name
+(e.g. ВЛЕН, "Твоја Македонија", "Демократско движење") with the member's
+formal party. The live endpoint is always current and separates the two
+fields cleanly.
+
+**Cast tiering** (strict "sitting MP only" rule, per earlier decision):
+- **MainCast, 6 MPs**: Венко Филипче (СДСМ), Димитар Апасиев (Левица),
+  Антонијо Милошоски (ВМРО-ДПМНЕ, Deputy Speaker), Талат Џафери
+  (ДУИ, Speaker), Али Ахмети (ДУИ founder), Амар Мециновиќ (Левица).
+- **Explicitly excluded**: Христијан Мицкоски (Prime Minister; his MP
+  mandate is suspended for the duration of his ministerial office,
+  identical rule to the earlier Димитриевски exclusion). Satirically,
+  the PM's absence from parliament is itself useful material for the
+  Chorus.
+- **Chorus, 114 MPs**: everyone else; represented as per-party
+  aggregates in the FSM per the v1.0 compute budget.
+
+**Party model**: 16 distinct parties (not 19; the CKAN-era count
+conflated a coalition label with a party). Each gets a stable short
+`PartyId` slug and a hand-picked brand-aware `ColorHex` in
+`scripts/Generate-SeedData.ps1` (`$PartySlugMap`). Unknown future
+parties fall through to `_unknown_*` slugs with a build-time warning,
+so a stale generator cannot silently misclassify new entrants.
+
+**Coalition as first-class field**: sobranie.mk returns `Party` and
+`Coalition` as separate attributes (e.g. party=`Движење БЕСА`,
+coalition=`ВЛЕН`). A new nullable `MPProfile.Coalition` column (max
+128) captures it; migration `AddCoalitionToMPProfile`. This keeps
+`PartyId` clean as the FK the FSM / seating UI use, while letting us
+render coalition groupings in the UI later without a schema change.
+
+**Personas**: All 6 MainCast are seeded with `personaSystemPrompt=null`
+and neutral traits (0.5 / 0.5 / 0.5). The next commit draws personas
+from parallel Claude + Gemini generations (user-picked winners) and
+populates traits, signature moves, and catchphrases per MP. Chorus
+personas remain null - the FSM uses party-level chorus lines and
+proposal context for them.
+
+**Alternatives rejected**:
+- **Keep fictional seed and layer real data later**: rejected by user
+  ("WE WILL NOT STAY FICTIONAL"). Having two modes doubles the test
+  surface with no near-term payoff.
+- **CKAN roster with librarian-researched party fills**: rejected once
+  sobranie.mk turned out to be authoritative and free; the librarian's
+  medium-confidence inferences were moot. See
+  `scripts/reconcile.txt` in the branch history for the comparison.
+- **Merging single-seat parties into "minor / other"**: rejected - keeps
+  the data honest, and the seat-count aggregates are cheap.
+
+**Verified**:
+- `scripts/Generate-SeedData.ps1` output: 16 parties (seat counts sum
+  to 120), 120 MPs (6 MainCast), 80 chorus lines (5 per party).
+- `dotnet build src/Sobranie.slnx` clean.
+- `dotnet test src/Sobranie.slnx` stays 8/8 green (tests use in-memory
+  fixtures, not the seed).
+- Boot smoke with a wiped `sobranie.db`: seeder inserts 120 MPs and
+  FSM logs show real Cyrillic names in speaker-selection output.
+
+**Deferred data sources** (captured here so the next contributor does
+not re-discover them):
+
+- **Parliamentary questions archive** (`Пратенички прашања`). Endpoint
+  `POST https://www.sobranie.mk/Routing/MakePostRequest` with body
+  `{"methodName":"/GetAllQuestions","LanguageId":1,"Page":1,"Rows":15,"StatusId":19,"StructureId":"5e00dbd6-ca3c-4d97-b748-f792b2fa3473",...}`
+  returns a paginated list of questions MPs have submitted to ministers.
+  Each has a detail page at
+  `https://www.sobranie.mk/detali-na-prasanje.nspx?questionId=<guid>`
+  with two scanned PDFs (`Прашање` / `Одговор`).
+  - **Value**: canonical source for each MP's actual policy obsessions;
+    far better persona fuel than news articles; enables a
+    "real-question → AI-debate → AI-answer vs real-answer" satirical
+    loop.
+  - **Why deferred**: PDFs are image scans, so ingestion needs Tesseract
+    + Cyrillic (`mkd.traineddata`) + deskew/binarize preprocessing on
+    A1 Neoverse-N1 (~2-5s/page, plus failure modes on handwritten
+    signatures and stamps). That is a 2-3 commit subsystem on its own,
+    and v1 LLM-generated fake proposals are sufficient for the
+    satirical loop without it.
+  - **Future hook**: a dedicated commit
+    `feat(scraping): ingest parliamentary Q&A archive` that (1) lists
+    question metadata via `/GetAllQuestions` pagination, (2) OCRs
+    detail-page PDFs, (3) stores question text keyed by `MPId`, and
+    (4) lets the proposal BackgroundService sample real questions as
+    proposal seeds. Cheap first step if needed sooner: harvest the
+    plain-text metadata (MP, minister, date, subject line) from the
+    list endpoint and skip the PDFs entirely.
+

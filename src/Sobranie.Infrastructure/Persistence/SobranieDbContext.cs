@@ -30,6 +30,7 @@ public sealed class SobranieDbContext(DbContextOptions<SobranieDbContext> option
             m.HasKey(x => x.MPId);
             m.Property(x => x.MPId).HasMaxLength(64);
             m.Property(x => x.DisplayName).HasMaxLength(256);
+            m.Property(x => x.Coalition).HasMaxLength(128);
             m.Property(x => x.PersonaSystemPrompt).HasMaxLength(4096);
             m.HasOne(x => x.Party).WithMany(p => p.Members).HasForeignKey(x => x.PartyId);
             m.HasIndex(x => new { x.Tier, x.PartyId });

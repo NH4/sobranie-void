@@ -40,3 +40,12 @@ appsettings.*.local.json
 *.key
 *.cer
 *.pem
+
+# Large base64-heavy dump from sobranie.mk (regenerate via Slim-MPsResponse.ps1)
+scripts/mps-with-parties.raw.json
+
+# Local boot smoke-test artifacts
+smoke.log
+smoke.err
+
+

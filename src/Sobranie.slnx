@@ -2,4 +2,5 @@
   <Project Path="Sobranie.Domain/Sobranie.Domain.csproj" />
   <Project Path="Sobranie.Infrastructure/Sobranie.Infrastructure.csproj" />
   <Project Path="Sobranie.Orchestrator/Sobranie.Orchestrator.csproj" />
+  <Project Path="../tests/Sobranie.Infrastructure.Tests/Sobranie.Infrastructure.Tests.csproj" />
 </Solution>

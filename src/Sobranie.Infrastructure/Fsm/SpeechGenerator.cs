@@ -1,0 +1,128 @@
+using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
+using Sobranie.Domain;
+
+namespace Sobranie.Infrastructure.Fsm;
+
+public sealed partial class SpeechGenerator(
+    IChatClient chatClient,
+    IOptions<SobranieOptions> options)
+{
+    private readonly OllamaOptions ollama = options.Value.Ollama;
+
+    public async Task<GeneratedSpeech> GenerateAsync(
+        MPProfile mp,
+        Proposal? currentProposal,
+        IReadOnlyList<Speech> recentSpeeches,
+        Func<string, Task>? onChunk,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mp);
+
+        var messages = BuildMessages(mp, currentProposal, recentSpeeches);
+
+        var chatOptions = new ChatOptions
+        {
+            Temperature = (float)ollama.Temperature,
+            TopP = (float)ollama.TopP,
+            MaxOutputTokens = ollama.MaxOutputTokens,
+        };
+
+        var sw = Stopwatch.StartNew();
+        var content = new StringBuilder();
+        var tokens = 0;
+
+        await foreach (var update in chatClient.GetStreamingResponseAsync(messages, chatOptions, cancellationToken).ConfigureAwait(false))
+        {
+            var text = update.Text;
+            if (string.IsNullOrEmpty(text))
+            {
+                continue;
+            }
+
+            content.Append(text);
+            tokens++;
+
+            if (onChunk is not null)
+            {
+                await onChunk(text).ConfigureAwait(false);
+            }
+        }
+
+        sw.Stop();
+        var raw = content.ToString();
+        var sanitized = Sanitize(raw);
+
+        return new GeneratedSpeech(
+            Content: sanitized,
+            TokenCount: tokens,
+            ElapsedSeconds: sw.Elapsed.TotalSeconds,
+            WasFiltered: !ReferenceEquals(raw, sanitized) && raw != sanitized);
+    }
+
+    private static List<ChatMessage> BuildMessages(
+        MPProfile mp,
+        Proposal? currentProposal,
+        IReadOnlyList<Speech> recentSpeeches)
+    {
+        var sys = new StringBuilder(mp.PersonaSystemPrompt
+            ?? "Ти си пратеник во Собранието на Република Северна Македонија. Одговараш кратко на македонски.");
+
+        if (mp.SignatureMoves.Count > 0)
+        {
+            sys.AppendLine();
+            sys.AppendLine();
+            sys.AppendLine("Примери на твојот стил (следи ги, не ги повторувај дословно):");
+            foreach (var move in mp.SignatureMoves.Take(3))
+            {
+                sys.Append("- ");
+                sys.AppendLine(move.Exemplar);
+            }
+        }
+
+        var messages = new List<ChatMessage> { new(ChatRole.System, sys.ToString()) };
+
+        if (recentSpeeches.Count > 0)
+        {
+            var ctx = new StringBuilder("Последни говори во салата:");
+            foreach (var s in recentSpeeches.Take(3).Reverse())
+            {
+                ctx.AppendLine();
+                var speaker = s.MP?.DisplayName ?? s.MPId;
+                ctx.Append(speaker).Append(": ").Append(Truncate(s.Content, 200));
+            }
+
+            messages.Add(new ChatMessage(ChatRole.User, ctx.ToString()));
+            messages.Add(new ChatMessage(ChatRole.Assistant, "Разбирам контекстот."));
+        }
+
+        var task = currentProposal is { } prop
+            ? $"Во моментов се дебатира: {prop.Headline}. Дај твое мислење (80-150 зборови)."
+            : "Дај твое мислење за актуелните политички прашања (80-150 зборови).";
+
+        messages.Add(new ChatMessage(ChatRole.User, task));
+        return messages;
+    }
+
+    private static string Truncate(string text, int maxLen)
+        => text.Length <= maxLen ? text : text[..maxLen] + "…";
+
+    private static string Sanitize(string raw)
+    {
+        var trimmed = raw.Trim();
+        trimmed = StripThinkTags().Replace(trimmed, string.Empty).Trim();
+        return trimmed;
+    }
+
+    [GeneratedRegex(@"<think>[\s\S]*?</think>", RegexOptions.IgnoreCase)]
+    private static partial Regex StripThinkTags();
+}
+
+public readonly record struct GeneratedSpeech(
+    string Content,
+    int TokenCount,
+    double ElapsedSeconds,
+    bool WasFiltered);

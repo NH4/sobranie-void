@@ -2,8 +2,10 @@ using System.Globalization;
 using System.Text.Json;
 using Serilog;
 using Sobranie.Infrastructure.DependencyInjection;
+using Sobranie.Infrastructure.Fsm;
 using Sobranie.Orchestrator.Endpoints;
 using Sobranie.Orchestrator.Hubs;
+using Sobranie.Orchestrator.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +19,8 @@ builder.Host.UseSerilog((ctx, cfg) => cfg
         formatProvider: CultureInfo.InvariantCulture));
 
 builder.Services.AddSobranieInfrastructure();
+
+builder.Services.AddScoped<ISpeechBroadcaster, SignalRSpeechBroadcaster>();
 
 builder.Services.AddSignalR().AddJsonProtocol(options =>
 {
@@ -54,6 +58,7 @@ app.MapGet("/metrics", () => Results.Text(
     """, "text/plain; version=0.0.4"));
 
 app.MapSmokeEndpoints();
+app.MapSessionEndpoints();
 app.MapHub<SobranieHub>("/hub");
 
 app.Run();

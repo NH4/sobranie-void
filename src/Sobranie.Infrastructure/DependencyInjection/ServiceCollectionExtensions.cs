@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
+using Sobranie.Infrastructure.Fsm;
 using Sobranie.Infrastructure.Persistence;
 using Sobranie.Infrastructure.Seeding;
 
@@ -44,6 +45,12 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<SobranieDataSeeder>();
+
+        services.AddSingleton<SessionState>();
+        services.AddScoped<UtilityCalculator>();
+        services.AddScoped<SpeakerSelector>();
+        services.AddScoped<SpeechGenerator>();
+        services.AddHostedService<SessionOrchestrator>();
 
         return services;
     }

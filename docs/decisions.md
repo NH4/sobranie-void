@@ -193,3 +193,49 @@ allocation on the hot path).
 `[LoggerMessage]` partial methods on a `partial class`. Not optional.
 **Exception**: Serilog's `UseSerilogRequestLogging()` middleware is allowed
 to internally use whatever it likes — we don't author that code.
+
+## D-016: FSM speaker selection via utility-weighted softmax
+
+**Date**: Sprint 1
+**Context**: MVP step 3 needs a way to pick which of the 7 MainCast MPs
+speaks next, every 45-60 seconds, without degenerating into either
+round-robin (boring) or uniform random (ignores context).
+
+**Decision**: Two-stage pipeline.
+
+1. `UtilityCalculator` assigns each MP a scalar utility:
+   `utility = base + (trait_match * weight) - recency_penalty`
+   - `trait_match` is a bag-of-MK-keywords classifier over the current
+     `InDebate` proposal headline + rewritten body, scoring populism,
+     legalism, and aggression traits against the MP's stats.
+   - `recency_penalty` is an exponential decay
+     `magnitude * 0.5 ^ (turnsAgo / halfLife)` against the last N speeches
+     (default N=8, halfLife=3).
+2. `SpeakerSelector` applies softmax with configurable temperature
+   (default 0.6) and does inverse-CDF sampling via a caller-supplied
+   `Random`. Temperature -> 0 is greedy; -> infinity is uniform.
+
+**Why not alternatives**:
+- **Pure random**: ignores persona specialization and recency fatigue.
+- **Argmax**: deterministic -> audience predicts next speaker instantly.
+- **Embedding-based topic match**: requires an embedding model in-proc
+  alongside the 8B chat model, blowing the RAM budget. Keyword classifier
+  is 200 lines and "good enough" until we have real proposals.
+
+**Recency half-life of 3** was picked so that a speaker who just talked
+still has ~50% fatigue three turns later - enough to rotate the cast
+without making it mechanical.
+
+**Tuning knobs** live in `SobranieOptions.Fsm` and are bindable via
+`appsettings.json` - no code change to retune.
+
+**SQLite caveat**: `DateTimeOffset` columns cannot appear in
+`ORDER BY`. The FSM orders recent speeches and proposals by auto-
+increment `Id` (monotonic for insert-only workloads, equivalent in
+practice to chronological order).
+
+**Verified**: 8 unit tests in `Sobranie.Infrastructure.Tests` cover
+softmax normalization, monotonicity, zero-score uniform fallback,
+determinism under seeded RNG, and recency penalty. Boot smoke confirms
+the orchestrator idles until `POST /api/session/start`, ticks cleanly,
+and recovers from transient Ollama outages.

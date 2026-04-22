@@ -80,7 +80,10 @@ public sealed partial class SobranieDataSeeder(
                 Legalism = m.Legalism,
                 Populism = m.Populism,
                 SeatIndex = m.SeatIndex,
-                PersonaSystemPrompt = m.PersonaSystemPrompt,
+                PersonaCore = m.PersonaCore,
+                PersonaOverlayGentle = m.PersonaOverlayGentle,
+                PersonaOverlaySharp = m.PersonaOverlaySharp,
+                PersonaOverlayAbsurd = m.PersonaOverlayAbsurd,
             };
             db.MPs.Add(mp);
 
@@ -133,7 +136,10 @@ public sealed partial class SobranieDataSeeder(
         double Legalism,
         double Populism,
         int SeatIndex,
-        string? PersonaSystemPrompt,
+        string? PersonaCore,
+        string? PersonaOverlayGentle,
+        string? PersonaOverlaySharp,
+        string? PersonaOverlayAbsurd,
         List<SignatureMoveDto> SignatureMoves);
 
     private sealed record SignatureMoveDto(

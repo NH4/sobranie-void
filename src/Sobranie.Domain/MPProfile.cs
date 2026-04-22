@@ -30,7 +30,36 @@ public sealed class MPProfile
 
     public int SeatIndex { get; set; }
 
-    public string? PersonaSystemPrompt { get; set; }
+    /// <summary>
+    /// Base persona system prompt (Macedonian Cyrillic) describing who
+    /// this MP is: biographical spine, rhetorical voice, policy obsessions,
+    /// signature tics. Stable across satire-intensity settings. Composed
+    /// at request time with one of the three overlays below; see
+    /// <c>SpeechGenerator.BuildMessages</c>. Null for Chorus MPs and until
+    /// a real persona is authored.
+    /// </summary>
+    public string? PersonaCore { get; set; }
+
+    /// <summary>
+    /// Gentle-intensity style overlay: the MP's dry / earnest / restrained
+    /// register. Appended to <see cref="PersonaCore"/> when
+    /// <c>SobranieOptions.SatireIntensity = "gentle"</c>. Nullable.
+    /// </summary>
+    public string? PersonaOverlayGentle { get; set; }
+
+    /// <summary>
+    /// Sharp-intensity style overlay: the MP's adversarial, pointed,
+    /// openly partisan register. Default overlay (<c>"sharp"</c>).
+    /// Appended to <see cref="PersonaCore"/> at request time. Nullable.
+    /// </summary>
+    public string? PersonaOverlaySharp { get; set; }
+
+    /// <summary>
+    /// Absurd-intensity style overlay: heightened, satirical, cartoonish
+    /// register. Appended to <see cref="PersonaCore"/> when
+    /// <c>SobranieOptions.SatireIntensity = "absurd"</c>. Nullable.
+    /// </summary>
+    public string? PersonaOverlayAbsurd { get; set; }
 
     public List<SignatureMove> SignatureMoves { get; init; } = [];
 }

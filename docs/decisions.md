@@ -273,15 +273,28 @@ formal party. The live endpoint is always current and separates the two
 fields cleanly.
 
 **Cast tiering** (strict "sitting MP only" rule, per earlier decision):
-- **MainCast, 6 MPs**: Венко Филипче (СДСМ), Димитар Апасиев (Левица),
-  Антонијо Милошоски (ВМРО-ДПМНЕ, Deputy Speaker), Талат Џафери
-  (ДУИ, Speaker), Али Ахмети (ДУИ founder), Амар Мециновиќ (Левица).
+- **MainCast, 7 MPs**: Венко Филипче (СДСМ), Димитар Апасиев (Левица),
+  Антонијо Милошоски (ВМРО-ДПМНЕ, Deputy Speaker), Талат Џафери (ДУИ,
+  former Speaker 2017-2024, now opposition MP), Али Ахмети (ДУИ
+  founder), Амар Мециновиќ (Левица), Африм Гаши (Алтернатива/ВЛЕН,
+  current Speaker since 28 May 2024).
+- **Correction to the earlier tally**: the prior version of this
+  entry listed Џафери as the current Speaker and capped MainCast at 6.
+  That was a dossier-drafting error: Џафери resigned as Speaker on
+  25 Jan 2024 and served as caretaker PM Jan-Jun 2024; after the 8 May
+  2024 election, Африм Гаши of Алтернатива (running inside the ВЛЕН
+  coalition with ВМРО-ДПМНЕ) was elected Speaker on 28 May 2024 and
+  holds the chair today. Џафери sits as a rank-and-file ДУИ opposition
+  MP in the 2024-2028 session. Both remain in MainCast because the
+  former-Speaker-vs-current-Speaker dynamic is one of the parliament's
+  richest satirical seams, and the 7th slot fills the VLEN/Алтернатива
+  coalition voice gap.
 - **Explicitly excluded**: Христијан Мицкоски (Prime Minister; his MP
   mandate is suspended for the duration of his ministerial office,
   identical rule to the earlier Димитриевски exclusion). Satirically,
   the PM's absence from parliament is itself useful material for the
   Chorus.
-- **Chorus, 114 MPs**: everyone else; represented as per-party
+- **Chorus, 113 MPs**: everyone else; represented as per-party
   aggregates in the FSM per the v1.0 compute budget.
 
 **Party model**: 16 distinct parties (not 19; the CKAN-era count
@@ -298,12 +311,13 @@ coalition=`ВЛЕН`). A new nullable `MPProfile.Coalition` column (max
 `PartyId` clean as the FK the FSM / seating UI use, while letting us
 render coalition groupings in the UI later without a schema change.
 
-**Personas**: All 6 MainCast are seeded with `personaSystemPrompt=null`
-and neutral traits (0.5 / 0.5 / 0.5). The next commit draws personas
-from parallel Claude + Gemini generations (user-picked winners) and
-populates traits, signature moves, and catchphrases per MP. Chorus
-personas remain null - the FSM uses party-level chorus lines and
-proposal context for them.
+**Personas**: All 7 MainCast are seeded with neutral traits (0.5 /
+0.5 / 0.5) and null persona fields on the D-017 commit. The follow-up
+personas commit draws `personaCore` + 3 intensity overlays from parallel
+Claude + Gemini generations (user-picked winners per MP) and populates
+traits, signature moves, and catchphrases. See D-018 for the persona-
+schema refactor. Chorus personas remain null - the FSM uses party-level
+chorus lines and proposal context for them.
 
 **Alternatives rejected**:
 - **Keep fictional seed and layer real data later**: rejected by user
@@ -318,7 +332,8 @@ proposal context for them.
 
 **Verified**:
 - `scripts/Generate-SeedData.ps1` output: 16 parties (seat counts sum
-  to 120), 120 MPs (6 MainCast), 80 chorus lines (5 per party).
+  to 120), 120 MPs (7 MainCast after D-018 correction; was 6 at the
+  time of the D-017 commit), 80 chorus lines (5 per party).
 - `dotnet build src/Sobranie.slnx` clean.
 - `dotnet test src/Sobranie.slnx` stays 8/8 green (tests use in-memory
   fixtures, not the seed).
@@ -353,4 +368,105 @@ not re-discover them):
     proposal seeds. Cheap first step if needed sooner: harvest the
     plain-text metadata (MP, minister, date, subject line) from the
     list endpoint and skip the PDFs entirely.
+
+---
+
+## D-018: Persona core + three intensity overlays; satire register as config
+
+**Context**: D-017 seeded 7 MainCast MPs with a single nullable
+`PersonaSystemPrompt` column. Writing satire to a single-tier register
+is a lose/lose: *gentle* reads as neutered C-SPAN, *sharp* is the default
+satirical voice, *absurd* is fun but gets tiring. The audience should be
+able to pick the tone without code changes.
+
+**Decision**: Split persona prompts into one **core** and three
+**overlays**; pick the overlay at request time from configuration.
+
+**Schema** (migration `AddPersonaOverlays`):
+- Drop `MPProfile.PersonaSystemPrompt` (rename to `PersonaCore` - EF
+  detected the shape change as a rename, preserving any existing data).
+- Add `PersonaOverlayGentle` (max 2048, nullable).
+- Add `PersonaOverlaySharp` (max 2048, nullable).
+- Add `PersonaOverlayAbsurd` (max 2048, nullable).
+
+`PersonaCore` (max 4096) holds the biographical spine, rhetorical voice,
+and signature tics in Macedonian Cyrillic - content that is stable
+regardless of tone. Each overlay (~150-300 words in MK) describes only
+the register: how adversarial, how literal vs. cartoonish, which tics
+to foreground.
+
+**Runtime composition** (`SpeechGenerator.BuildMessages`):
+```
+system = PersonaCore + "\n\n" + Overlay[SatireIntensity]
+```
+
+Added `SobranieOptions.SatireIntensity` (string, default `"sharp"`,
+bindable from `appsettings.json`). Accepted values: `gentle`, `sharp`,
+`absurd`. Unknown or null values fall back to sharp. If the selected
+overlay is null on a given MP, `SelectOverlay` falls back to
+`PersonaOverlaySharp`; if that is also null, the system prompt is
+just the core. This keeps operators free to author only one overlay
+per MP initially and promote to all three later without crashes.
+
+**Why schema-backed and not a single prompt with a `{{intensity}}`
+placeholder**: A placeholder forces the core prompt to carry
+intensity-conditional clauses, which either bloats the core or leaks
+tone into biographical content. Three separate overlays keep the core
+a clean fact-sheet and put tone entirely in the overlay file. The
+DB cost is three nullable TEXT columns per MP - negligible.
+
+**Why config-driven and not a per-request API parameter**: For v1 the
+audience experience is "one session, one register" - changing tone
+mid-stream would be jarring, and the FSM's recency/utility model
+assumes stable persona voices for the `TraitMatchWeight` penalty to
+make sense. A per-request override can be added later without schema
+changes if needed.
+
+**MainCast correction**: The personas commit also corrects the
+MainCast roster listed in D-017. After 2024-05-08 elections, Talat
+Xhaferi resigned as Speaker on 2024-01-25 and left the chair; Afrim
+Gashi (Alternativa, inside the VLEN coalition) has held the Speakership
+since 2024-05-28. Both are now in MainCast (7 MPs total). Xhaferi
+stays because the former-Speaker-vs-current-Speaker dynamic is the
+richest seam in the chamber; Gashi fills the VLEN coalition voice
+gap. The `Coalition` column is `"ВЛЕН"` for Gashi via a targeted
+override in `scripts/Generate-SeedData.ps1` (`$CoalitionOverrides`),
+because sobranie.mk upstream leaves Coalition blank for all
+Alternativa rows - a data-source artefact, not a political fact.
+
+**Persona source of truth**: The bilingual (MK body + English `//`
+annotations) drafts live in `scripts/personas/<slug>.md`, one file per
+MainCast MP. `Generate-SeedData.ps1` will (in the follow-up step)
+read these files, strip annotation lines, and emit the clean MK prompt
+into `seed-data.json`. Keeping the annotated source outside the seed
+JSON means reviewers can read the English explanation of each line
+without bloating the JSON or leaking meta-commentary into the LLM
+context.
+
+**Alternatives rejected**:
+- **One prompt, three placeholders**: rejected (see above). Tone leaks
+  into biography.
+- **Per-MP intensity setting on `MPProfile`**: rejected. Would let some
+  MPs be gentle while others are absurd in the same session - unhinged
+  ensemble dynamics, no clear value.
+- **Drop `gentle` and only ship `sharp` + `absurd`**: considered briefly.
+  Kept gentle because it is the only mode that produces recognizably
+  real parliamentary speech; useful for demos, for moments when the
+  simulation should feel earnest, and as a baseline for satirical
+  contrast.
+
+**Verified**:
+- `dotnet build src/Sobranie.slnx` clean (only pre-existing NU1903
+  warnings on a transitive package).
+- `dotnet test src/Sobranie.slnx` stays 8/8 green.
+- Migration `AddPersonaOverlays` applies cleanly on a fresh
+  `sobranie.db`; boot smoke shows `Seed complete: 16 parties, 120 MPs,
+  80 chorus lines, 216 total rows`.
+- `seed-data.json` carries Gashi with `partyId: alternativa`,
+  `coalition: "ВЛЕН"`, `tier: "MainCast"`, `seatIndex: 3`, and all
+  four new persona fields present and null.
+- Full persona content (core + three overlays per MP) lands in the
+  follow-up sub-step of this same commit, once parallel Claude +
+  Gemini drafts are reviewed and the winners are written into
+  `scripts/personas/`.
 

@@ -6,6 +6,16 @@ public sealed class SobranieOptions
 
     public string DatabasePath { get; set; } = "sobranie.db";
 
+    /// <summary>
+    /// Satire register applied to MainCast MPs at speech-generation time.
+    /// Selects which <c>MPProfile.PersonaOverlay*</c> is appended to
+    /// <c>MPProfile.PersonaCore</c>. Accepted values: <c>"gentle"</c>,
+    /// <c>"sharp"</c> (default), <c>"absurd"</c>. Unrecognized or null
+    /// values fall back to <c>"sharp"</c>. See
+    /// <c>SpeechGenerator.BuildMessages</c>.
+    /// </summary>
+    public string SatireIntensity { get; set; } = "sharp";
+
     public OllamaOptions Ollama { get; set; } = new();
 
     public FsmOptions Fsm { get; set; } = new();

@@ -11,6 +11,10 @@ public sealed partial class SpeechGenerator(
     IChatClient chatClient,
     IOptions<SobranieOptions> options)
 {
+    private const string DefaultCorePrompt =
+        "Ти си пратеник во Собранието на Република Северна Македонија. Одговараш кратко на македонски.";
+
+    private readonly SobranieOptions rootOptions = options.Value;
     private readonly OllamaOptions ollama = options.Value.Ollama;
 
     public async Task<GeneratedSpeech> GenerateAsync(
@@ -22,7 +26,7 @@ public sealed partial class SpeechGenerator(
     {
         ArgumentNullException.ThrowIfNull(mp);
 
-        var messages = BuildMessages(mp, currentProposal, recentSpeeches);
+        var messages = BuildMessages(mp, currentProposal, recentSpeeches, rootOptions.SatireIntensity);
 
         var chatOptions = new ChatOptions
         {
@@ -66,10 +70,18 @@ public sealed partial class SpeechGenerator(
     private static List<ChatMessage> BuildMessages(
         MPProfile mp,
         Proposal? currentProposal,
-        IReadOnlyList<Speech> recentSpeeches)
+        IReadOnlyList<Speech> recentSpeeches,
+        string satireIntensity)
     {
-        var sys = new StringBuilder(mp.PersonaSystemPrompt
-            ?? "Ти си пратеник во Собранието на Република Северна Македонија. Одговараш кратко на македонски.");
+        var sys = new StringBuilder(mp.PersonaCore ?? DefaultCorePrompt);
+
+        var overlay = SelectOverlay(mp, satireIntensity);
+        if (!string.IsNullOrWhiteSpace(overlay))
+        {
+            sys.AppendLine();
+            sys.AppendLine();
+            sys.Append(overlay);
+        }
 
         if (mp.SignatureMoves.Count > 0)
         {
@@ -106,6 +118,14 @@ public sealed partial class SpeechGenerator(
         messages.Add(new ChatMessage(ChatRole.User, task));
         return messages;
     }
+
+    private static string? SelectOverlay(MPProfile mp, string satireIntensity)
+        => satireIntensity?.ToLowerInvariant() switch
+        {
+            "gentle" => mp.PersonaOverlayGentle ?? mp.PersonaOverlaySharp,
+            "absurd" => mp.PersonaOverlayAbsurd ?? mp.PersonaOverlaySharp,
+            _ => mp.PersonaOverlaySharp,
+        };
 
     private static string Truncate(string text, int maxLen)
         => text.Length <= maxLen ? text : text[..maxLen] + "…";

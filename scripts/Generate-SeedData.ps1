@@ -10,7 +10,7 @@
 
   - Maps every distinct Cyrillic party name to a stable short PartyId
     slug and a brand-aware color hex (hand-curated; see $PartySlugMap).
-  - Tags 6 MainCast MPs by UserId; every other MP is CastTier.Chorus.
+  - Tags 7 MainCast MPs by UserId; every other MP is CastTier.Chorus.
   - Emits a chorus line per party so the Chorus tier has something to
     vocalize regardless of party size.
   - Preserves the SeedDocument schema consumed by SobranieDataSeeder.
@@ -56,17 +56,29 @@ $PartySlugMap = @{
 # Chorus topic tags are generic so the FSM can reuse them across parties.
 $DefaultChorusTags = @('general_support', 'heckle_opposition', 'general_neutral')
 
-# Six sitting MPs selected as MainCast per docs/decisions.md D-017.
-# (Христијан Мицкоски is excluded - he is Prime Minister and his MP
-# mandate is currently suspended, so he is not a member of this session.)
+# Seven sitting MPs selected as MainCast per docs/decisions.md D-017
+# (as corrected in D-018).
+# Christian Mickoski is excluded - he is Prime Minister and his MP
+# mandate is currently suspended, so he is not a member of this session.
+# Talat Xhaferi is former Speaker (2017-2024); Afrim Gashi is the
+# current Speaker since 28 May 2024.
 $MainCastUserIds = @(
-  'a47a3a15-9f13-4ba6-afd0-53db79fc2f02',  # Венко Филипче (СДСМ)
-  '4eeadcc4-4b7b-4708-ae9b-1ebf1c0a25f9',  # Димитар Апасиев (Левица)
-  'f66f1d74-95ad-4df7-8586-17bfdb169228',  # Антонијо Милошоски (ВМРО-ДПМНЕ)
-  'e1ead9d2-7a0e-4478-9fc7-34581e2937ee',  # Талат Џафери (ДУИ, Speaker)
-  '941c5a06-34cb-4cb1-955a-25344a8f3a48',  # Али Ахмети (ДУИ founder)
-  'b0688e81-82f8-4d41-bcfd-23ed8d9a27d9'   # Амар Мециновиќ (Левица)
+  'a47a3a15-9f13-4ba6-afd0-53db79fc2f02',  # Venko Filipche (SDSM)
+  '4eeadcc4-4b7b-4708-ae9b-1ebf1c0a25f9',  # Dimitar Apasiev (Levica)
+  'f66f1d74-95ad-4df7-8586-17bfdb169228',  # Antonijo Miloshoski (VMRO-DPMNE, Deputy Speaker)
+  'e1ead9d2-7a0e-4478-9fc7-34581e2937ee',  # Talat Xhaferi (DUI, former Speaker 2017-2024, now opposition MP)
+  '941c5a06-34cb-4cb1-955a-25344a8f3a48',  # Ali Ahmeti (DUI founder)
+  'b0688e81-82f8-4d41-bcfd-23ed8d9a27d9',  # Amar Mecinovikj (Levica)
+  '844cc6b4-6299-4f8e-bc99-daa48cb23a23'   # Afrim Gashi (Alternativa / VLEN, Speaker since 28 May 2024)
 )
+
+# Upstream sobranie.mk leaves Coalition blank for all Alternativa rows,
+# but Alternativa ran inside VLEN in May 2024 and Gashi's Speakership
+# is a VLEN-coalition appointment. Targeted override for Gashi only,
+# so the MainCast row carries the coalition fact the personas encode.
+$CoalitionOverrides = @{
+  '844cc6b4-6299-4f8e-bc99-daa48cb23a23' = 'ВЛЕН'
+}
 
 # Short generic chorus lines per party, tagged by FSM event type.
 # These exist so even single-seat parties have something to say; the
@@ -145,19 +157,23 @@ foreach ($m in $sortedMps) {
   $tier  = if ($mainCastLookup.ContainsKey($uid)) { 'MainCast' } else { 'Chorus' }
   $coal  = [string]$m['Coalition']
   if ([string]::IsNullOrWhiteSpace($coal)) { $coal = $null }
+  if ($CoalitionOverrides.ContainsKey($uid)) { $coal = $CoalitionOverrides[$uid] }
 
   $mpOut.Add([PSCustomObject]@{
-    mpId                = $uid
-    partyId             = $titleToSlug[$title]
-    displayName         = [string]$m['FullName']
-    coalition           = $coal
-    tier                = $tier
-    aggression          = 0.5
-    legalism            = 0.5
-    populism            = 0.5
-    seatIndex           = $seatIndex
-    personaSystemPrompt = $null
-    signatureMoves      = @()
+    mpId                 = $uid
+    partyId              = $titleToSlug[$title]
+    displayName          = [string]$m['FullName']
+    coalition            = $coal
+    tier                 = $tier
+    aggression           = 0.5
+    legalism             = 0.5
+    populism             = 0.5
+    seatIndex            = $seatIndex
+    personaCore          = $null
+    personaOverlayGentle = $null
+    personaOverlaySharp  = $null
+    personaOverlayAbsurd = $null
+    signatureMoves       = @()
   })
   $seatIndex++
 }

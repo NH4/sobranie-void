@@ -1,0 +1,39 @@
+[Unit]
+Description=Sobranie Void Orchestrator (.NET 10)
+Documentation=https://github.com/vancojordanovski/sobranie-void
+After=network-online.target ollama.service
+Wants=network-online.target
+Requires=ollama.service
+
+[Service]
+Type=notify
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/sobranie-void/publish
+ExecStart=/usr/bin/dotnet /opt/sobranie-void/publish/Sobranie.Orchestrator.dll
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+SyslogIdentifier=sobranie
+Environment=DOTNET_ROOT=/usr/share/dotnet
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5000
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+Environment=DOTNET_NOLOGO=1
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sobranie-void/data /opt/sobranie-void/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits (leave headroom for Ollama's 5GB RSS)
+MemoryMax=4G
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target

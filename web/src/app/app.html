@@ -1,0 +1,22 @@
+<main class="shell">
+  <header>
+    <h1>{{ title() }}</h1>
+    <span class="conn" [class.online]="hub.isConnected()">
+      hub: {{ hub.connectionState() }}
+    </span>
+  </header>
+
+  <section class="controls">
+    <button type="button" (click)="triggerSmokeSpeech()" [disabled]="busy()">
+      {{ busy() ? 'Generating...' : 'Trigger smoke speech' }}
+    </button>
+    @if (lastError(); as err) {
+      <p class="error">{{ err }}</p>
+    }
+  </section>
+
+  <section class="hansard">
+    <h2>Hansard</h2>
+    <pre>{{ hub.transcript() || '(no speeches yet)' }}</pre>
+  </section>
+</main>

@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.cs text eol=lf
+*.ts text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.gguf binary
+*.db binary
+*.png binary
+*.jpg binary

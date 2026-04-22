@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
 using Sobranie.Infrastructure.Persistence;
+using Sobranie.Infrastructure.Seeding;
 
 namespace Sobranie.Infrastructure.DependencyInjection;
 
@@ -42,6 +43,8 @@ public static class ServiceCollectionExtensions
             return client;
         });
 
+        services.AddScoped<SobranieDataSeeder>();
+
         return services;
     }
 
@@ -52,5 +55,8 @@ public static class ServiceCollectionExtensions
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SobranieDbContext>();
         await db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+
+        var seeder = scope.ServiceProvider.GetRequiredService<SobranieDataSeeder>();
+        await seeder.SeedAsync(cancellationToken).ConfigureAwait(false);
     }
 }

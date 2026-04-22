@@ -138,3 +138,58 @@ initial migration. Fixed before the migration encoded it, which would have
 required a rename migration to correct.
 **Lesson**: Always run `dotnet build` **and** eyeball entity names before
 `ef migrations add`. Migrations are a one-way ratchet for column names.
+
+## D-013: TTS — Piper is out, eSpeak-NG is in (for MVP)
+
+**Date**: Sprint 1 planning
+**Context**: Librarian research (task `bg_4ffa660e`) confirmed:
+- `rhasspy/piper-voices` has no `mk` voice across 35 supported languages.
+- No community-trained Piper MK voice on HuggingFace.
+- Coqui XTTS-v2 does not list Macedonian in its 17-language set.
+- eSpeak-NG has confirmed `mk` support, ships in Ubuntu 24.04 ARM64 repos.
+- OmniVoice (k2-fsa) supports 600+ languages zero-shot including MK, but
+  CPU latency is ~20s per 7s clip — prohibitive for real-time on 4 cores.
+
+**Decision**: MVP uses **eSpeak-NG** invoked as a subprocess from the
+orchestrator (`espeak-ng -v mk "text" -w output.wav`). Zero extra deps,
+`sudo apt install espeak-ng` on the A1.
+
+**Rejected**:
+- **Piper**: no MK voice exists. Training one requires a clean MK speech
+  corpus (Common Voice MK etc.) and GPU-hours we don't have.
+- **OmniVoice**: quality upgrade path after MVP, but 20s/clip makes it
+  unusable for live parliament pace (45–60s speeches would pile up).
+- **XTTS-v2**: no MK support.
+
+**Follow-up**: post-MVP, evaluate OmniVoice with a job-queue model where
+audio is pre-generated in the background during LLM inference. Not MVP
+scope.
+
+## D-014: Seed data uses fictional placeholder personas
+
+**Date**: Sprint 1
+**Decision**: `src/Sobranie.Orchestrator/seed-data.json` ships 4 fictional
+parties (Alpha/Beta/Gamma/Delta) and 7 fictional MPs with Cyrillic
+placeholder names (`Пратеник А1`, etc.). Real-name personas are a
+deliberate non-decision for now.
+**Why**:
+- Eliminates defamation risk during development.
+- Seed file is content, not code — can be swapped wholesale by editing
+  JSON, no rebuild required.
+- Persona prompts are in Macedonian and drive the MK LLM correctly; the
+  *fiction* is the identity layer, not the linguistic layer.
+**Follow-up**: Before any public launch, user decides: real names (and
+accepts the legal posture) OR stays fictional (and we make that an explicit
+product framing).
+
+## D-015: LoggerMessage source generator for all structured logs
+
+**Date**: Sprint 1
+**Context**: `TreatWarningsAsErrors=true` makes CA1848 block any
+`logger.LogXxx(...)` call. The rule recommends source-generated
+`[LoggerMessage]` delegates for performance (no boxing, no `params object[]`
+allocation on the hot path).
+**Decision**: All Infrastructure/Orchestrator logging must use
+`[LoggerMessage]` partial methods on a `partial class`. Not optional.
+**Exception**: Serilog's `UseSerilogRequestLogging()` middleware is allowed
+to internally use whatever it likes — we don't author that code.

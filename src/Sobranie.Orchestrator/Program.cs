@@ -34,6 +34,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+await app.Services.MigrateSobranieDatabaseAsync().ConfigureAwait(false);
+
 app.UseSerilogRequestLogging();
 app.UseCors();
 

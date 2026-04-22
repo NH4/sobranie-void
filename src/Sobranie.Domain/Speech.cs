@@ -19,7 +19,7 @@ public sealed class Speech
 
     public SpeechKind Kind { get; set; } = SpeechKind.MainCastSpeech;
     public required string Content { get; set; }
-    public DateTimeOffset UttereredAt { get; set; }
+    public DateTimeOffset UtteredAt { get; set; }
 
     public int TokenCount { get; set; }
     public double GenerationSeconds { get; set; }

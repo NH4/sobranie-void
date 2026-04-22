@@ -1,0 +1,8 @@
+root = false
+
+# EF Core-generated migration code. We do not hand-edit these files;
+# suppressing analyzer rules that fight EF's code generator.
+[*.cs]
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1062.severity = none
+dotnet_diagnostic.CA1812.severity = none

@@ -44,4 +44,13 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    public static async Task MigrateSobranieDatabaseAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken = default)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SobranieDbContext>();
+        await db.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

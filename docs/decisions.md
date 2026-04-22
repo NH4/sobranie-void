@@ -106,3 +106,35 @@ in `Program.cs` preemptively.
 **Why**: The smoke endpoint currently sends anonymous objects with lowercase
 property names, so it happens to work — but the first real DTO we introduce
 would break wire compat silently. Fix it now, not later.
+
+## D-010: Auto-migrate on startup (no manual gating)
+
+**Date**: Sprint 0 (post-commit)
+**Decision**: Call `app.Services.MigrateSobranieDatabaseAsync()` before
+`app.Run()` so every boot applies pending migrations.
+**Why**: Single-node SQLite, single-process app, hobby project. There is no
+scenario where a blue/green deploy, schema drift detection, or manual
+migration gating adds value. Boot, migrate, serve.
+**Rejected**: `db.Database.EnsureCreated()` — bypasses migrations, makes
+future schema changes impossible without wiping the file.
+
+## D-011: Suppress CA1861/CA1062/CA1812 on EF-generated migrations
+
+**Date**: Sprint 0 (post-commit)
+**Context**: `dotnet ef migrations add` generates code that trips
+`TreatWarningsAsErrors` (CA1861 on column-type array literals, etc.).
+**Decision**: Add `.editorconfig` in `Persistence/Migrations/` overriding
+those rules to `severity = none` for that folder only.
+**Why**: We don't hand-edit generated migration code. Suppressing globally
+would hide real bugs; scoping to the Migrations folder is the targeted fix.
+**Rejected**: Using partial classes to work around the analyzers — adds
+maintenance burden for zero real-world benefit.
+
+## D-012: UtteredAt, not UttereredAt
+
+**Date**: Sprint 0 (post-commit)
+**Context**: Typo in `Speech.UttereredAt` caught while generating the
+initial migration. Fixed before the migration encoded it, which would have
+required a rename migration to correct.
+**Lesson**: Always run `dotnet build` **and** eyeball entity names before
+`ef migrations add`. Migrations are a one-way ratchet for column names.

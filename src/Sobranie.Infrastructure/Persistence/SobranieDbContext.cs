@@ -69,8 +69,8 @@ public sealed class SobranieDbContext(DbContextOptions<SobranieDbContext> option
             s.Property(x => x.Content).HasMaxLength(8192);
             s.HasOne(x => x.MP).WithMany().HasForeignKey(x => x.MPId);
             s.HasOne(x => x.Proposal).WithMany().HasForeignKey(x => x.ProposalId);
-            s.HasIndex(x => x.UttereredAt);
-            s.HasIndex(x => new { x.MPId, x.UttereredAt });
+        s.HasIndex(x => x.UtteredAt);
+        s.HasIndex(x => new { x.MPId, x.UtteredAt });
         });
 
         modelBuilder.Entity<BeefEdge>(b =>

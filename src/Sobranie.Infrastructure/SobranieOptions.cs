@@ -19,6 +19,10 @@ public sealed class SobranieOptions
     public OllamaOptions Ollama { get; set; } = new();
 
     public FsmOptions Fsm { get; set; } = new();
+
+    public ScraperOptions Scraper { get; set; } = new();
+
+    public ChorusOptions Chorus { get; set; } = new();
 }
 
 public sealed class OllamaOptions
@@ -47,7 +51,22 @@ public sealed class FsmOptions
 
     public int RecentSpeechWindow { get; set; } = 8;
 
+    public int TurnsPerProposal { get; set; } = 12;
+
     public int? RandomSeed { get; set; }
 
     public bool AutoStartSession { get; set; }
+}
+
+public sealed class ScraperOptions
+{
+    public string RssFeedUrl { get; set; } = "https://time.mk/rss/all";
+    public int PollIntervalMinutes { get; set; } = 5;
+}
+
+public sealed class ChorusOptions
+{
+    public int MinReactionsPerBurst { get; set; } = 1;
+    public int MaxReactionsPerBurst { get; set; } = 3;
+    public double MeanReactionsPerTurn { get; set; } = 2.0;
 }

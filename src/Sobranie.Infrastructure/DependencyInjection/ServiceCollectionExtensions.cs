@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using OllamaSharp;
 using Sobranie.Infrastructure.Fsm;
 using Sobranie.Infrastructure.Persistence;
+using Sobranie.Infrastructure.Scraping;
 using Sobranie.Infrastructure.Seeding;
 
 namespace Sobranie.Infrastructure.DependencyInjection;
@@ -51,6 +52,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SpeakerSelector>();
         services.AddScoped<SpeechGenerator>();
         services.AddHostedService<SessionOrchestrator>();
+        services.AddHostedService<ChorusEmitterService>();
+        services.AddHostedService<RssScraperService>();
 
         return services;
     }

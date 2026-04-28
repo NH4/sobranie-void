@@ -1,28 +1,31 @@
 ﻿<#
 .SYNOPSIS
   Regenerates src/Sobranie.Orchestrator/seed-data.json from the real
-  sobranie.mk MP roster captured in scripts/mps-with-parties.slim.json.
+  sobranie.mk MP roster + scripts/personas/*.md persona files.
 
 .DESCRIPTION
   Source of truth: sobranie.mk MakePostRequest/GetParliamentMPsNoImage
-  (see scripts/mps-with-parties.raw.json for the raw response and
+  (see scripts/mps-with-parties.slim.json for the raw response and
   scripts/mps-with-parties.slim.json for the distilled record set).
 
   - Maps every distinct Cyrillic party name to a stable short PartyId
     slug and a brand-aware color hex (hand-curated; see $PartySlugMap).
   - Tags 7 MainCast MPs by UserId; every other MP is CastTier.Chorus.
+  - Reads scripts/personas/*.md files for MainCast persona content and
+    trait overrides; chorus lines come from $ChorusTemplates.
   - Emits a chorus line per party so the Chorus tier has something to
     vocalize regardless of party size.
   - Preserves the SeedDocument schema consumed by SobranieDataSeeder.
 
-  Run after updating mps-with-parties.slim.json to apply the refresh.
+  Run after updating mps-with-parties.slim.json or persona files.
   The seeder bails out if the Parties table is non-empty, so delete
   the SQLite file first if you want the new data to take effect.
 #>
 [CmdletBinding()]
 param(
-  [string]$SlimPath = 'C:\Users\Van4o\sobranie-void\scripts\mps-with-parties.slim.json',
-  [string]$OutPath  = 'C:\Users\Van4o\sobranie-void\src\Sobranie.Orchestrator\seed-data.json'
+  [string]$SlimPath     = 'C:\Users\Van4o\sobranie-void\scripts\mps-with-parties.slim.json',
+  [string]$OutPath      = 'C:\Users\Van4o\sobranie-void\src\Sobranie.Orchestrator\seed-data.json',
+  [string]$PersonasDir  = 'C:\Users\Van4o\sobranie-void\scripts\personas'
 )
 
 Add-Type -AssemblyName System.Web.Extensions
@@ -53,7 +56,7 @@ $PartySlugMap = @{
   'Демократска партија на Албанците'                         = @('dpa',        'ДПА',    '#3498DB')
 }
 
-# Chorus topic tags are generic so the FSM can reuse them across parties.
+# Short generic chorus lines per party, tagged by FSM event type.
 $DefaultChorusTags = @('general_support', 'heckle_opposition', 'general_neutral')
 
 # Seven sitting MPs selected as MainCast per docs/decisions.md D-017
@@ -74,22 +77,115 @@ $MainCastUserIds = @(
 
 # Upstream sobranie.mk leaves Coalition blank for all Alternativa rows,
 # but Alternativa ran inside VLEN in May 2024 and Gashi's Speakership
-# is a VLEN-coalition appointment. Targeted override for Gashi only,
-# so the MainCast row carries the coalition fact the personas encode.
+# is a VLEN-coalition appointment. Targeted override for Gashi only.
 $CoalitionOverrides = @{
   '844cc6b4-6299-4f8e-bc99-daa48cb23a23' = 'ВЛЕН'
 }
 
-# Short generic chorus lines per party, tagged by FSM event type.
-# These exist so even single-seat parties have something to say; the
-# persona-writing commit will replace / extend these with real ones.
+# Short generic chorus lines per party
 $ChorusTemplates = @(
-  @{ tag = 'general_support';  text = 'Така е!' },
-  @{ tag = 'general_support';  text = 'Точно!' },
+  @{ tag = 'general_support';   text = 'Така е!' },
+  @{ tag = 'general_support';   text = 'Точно!' },
   @{ tag = 'heckle_opposition'; text = 'Срам!' },
   @{ tag = 'heckle_opposition'; text = 'Лаги!' },
   @{ tag = 'general_neutral';   text = 'Гледаме, гледаме.' }
 )
+
+# --- Persona file parser ---------------------------------------------------
+
+function Read-PersonaFile {
+  param([string]$Path)
+
+  $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+
+  # Extract display name from title line: "# Име Презиме — Име Презиме"
+  $displayName = $null
+  $lines = $text -split "`n"
+  foreach ($l in $lines) {
+    if ($l -match '^\s*#\s+.+?\s+—\s+(.+)$') {
+      $displayName = $matches[1].Trim()
+      break
+    }
+  }
+
+  if (-not $displayName) {
+    throw ("Could not parse display name from persona file: {0}" -f $Path)
+  }
+
+  # Pull out sections; content runs until the next ## or end of file.
+  $sections = @{}
+
+  $currentSection = $null
+  $currentContent = [System.Collections.Generic.List[string]]::new()
+
+  foreach ($l in $lines) {
+    # Skip comment lines (// style)
+    if ($l -match '^\s*//') { continue }
+
+    if ($l -match '^\s*##\s+(\S[^\r\n]*)') {
+      if ($currentSection) {
+        $sections[$currentSection] = ($currentContent -join "`n").Trim()
+      }
+      $currentSection = $matches[1].Trim()
+      $currentContent.Clear()
+    }
+    elseif ($currentSection) {
+      $currentContent.Add($l)
+    }
+  }
+  if ($currentSection) {
+    $sections[$currentSection] = ($currentContent -join "`n").Trim()
+  }
+
+  # Parse Traits section: "Aggression: 0.8", etc.
+  $traits = @{ aggression = 0.5; legalism = 0.5; populism = 0.5 }
+  if ($sections['Traits']) {
+    foreach ($l in ($sections['Traits'] -split "`n")) {
+      if ($l -match '^\s*(Aggression|Legalism|Populism)\s*:\s*([\d.]+)') {
+        $key = $matches[1].ToLower()
+        $traits[$key] = [double]$matches[2]
+      }
+    }
+  }
+
+  # Parse SignatureMoves section: "- ""signature text"""
+  $sigMoves = [System.Collections.Generic.List[object]]::new()
+  if ($sections['SignatureMoves']) {
+    $inList = $false
+    foreach ($l in ($sections['SignatureMoves'] -split "`n")) {
+      if ($l -match '^\s*-\s+["""](.+)["""]\s*$') {
+        $sigMoves.Add([PSCustomObject]@{
+          label         = ''
+          exemplar     = $matches[1]
+          triggerWeight = 1.0
+        })
+      }
+    }
+  }
+
+  return @{
+    DisplayName    = $displayName
+    PersonaCore    = $sections['Core']
+    OverlayGentle  = $sections['OverlayGentle']
+    OverlaySharp    = $sections['OverlaySharp']
+    OverlayAbsurd   = $sections['OverlayAbsurd']
+    Traits         = $traits
+    SignatureMoves = $sigMoves
+  }
+}
+
+# --- Load all persona files -----------------------------------------------
+
+$personasByName = @{}
+if (Test-Path $PersonasDir) {
+  foreach ($f in Get-ChildItem -Path $PersonasDir -Filter '*.md') {
+    $p = Read-PersonaFile -Path $f.FullName
+    $personasByName[$p.DisplayName] = $p
+    Write-Output ("Loaded persona: {0}" -f $p.DisplayName)
+  }
+} else {
+  Write-Warning ("Personas directory not found: {0}" -f $PersonasDir)
+}
 
 # --- Build parties --------------------------------------------------------
 
@@ -128,7 +224,7 @@ if ($unknownParties.Count -gt 0) {
 $titleToSlug = @{}
 foreach ($p in $partyOut) { $titleToSlug[$p.displayName] = $p.partyId }
 
-# --- Build MPs -----------------------------------------------------------
+# --- Build MPs ------------------------------------------------------------
 
 $mainCastLookup = @{}
 foreach ($id in $MainCastUserIds) { $mainCastLookup[$id] = $true }
@@ -159,21 +255,39 @@ foreach ($m in $sortedMps) {
   if ([string]::IsNullOrWhiteSpace($coal)) { $coal = $null }
   if ($CoalitionOverrides.ContainsKey($uid)) { $coal = $CoalitionOverrides[$uid] }
 
+  $fullName = [string]$m['FullName']
+
+  # Check for persona override by display name
+  $persona = $null
+  if ($personasByName.ContainsKey($fullName)) {
+    $persona = $personasByName[$fullName]
+  }
+
+  if ($persona) {
+    $aggression = $persona.Traits['aggression']
+    $legalism   = $persona.Traits['legalism']
+    $populism   = $persona.Traits['populism']
+  } else {
+    $aggression = 0.5
+    $legalism   = 0.5
+    $populism   = 0.5
+  }
+
   $mpOut.Add([PSCustomObject]@{
     mpId                 = $uid
     partyId              = $titleToSlug[$title]
-    displayName          = [string]$m['FullName']
+    displayName          = $fullName
     coalition            = $coal
     tier                 = $tier
-    aggression           = 0.5
-    legalism             = 0.5
-    populism             = 0.5
+    aggression           = $aggression
+    legalism             = $legalism
+    populism             = $populism
     seatIndex            = $seatIndex
-    personaCore          = $null
-    personaOverlayGentle = $null
-    personaOverlaySharp  = $null
-    personaOverlayAbsurd = $null
-    signatureMoves       = @()
+    personaCore          = if ($persona) { $persona.PersonaCore } else { $null }
+    personaOverlayGentle = if ($persona) { $persona.OverlayGentle } else { $null }
+    personaOverlaySharp  = if ($persona) { $persona.OverlaySharp } else { $null }
+    personaOverlayAbsurd = if ($persona) { $persona.OverlayAbsurd } else { $null }
+    signatureMoves       = if ($persona) { $persona.SignatureMoves } else { @() }
   })
   $seatIndex++
 }
@@ -192,11 +306,11 @@ foreach ($p in $partyOut) {
   }
 }
 
-# --- Emit ---------------------------------------------------------------
+# --- Emit -----------------------------------------------------------------
 
 $doc = [ordered]@{
-  '_comment'   = 'Generated by scripts/Generate-SeedData.ps1 from scripts/mps-with-parties.slim.json. See docs/decisions.md D-017.'
-  '_schema'    = 'v2'
+  '_comment'   = 'Generated by scripts/Generate-SeedData.ps1 from scripts/mps-with-parties.slim.json + scripts/personas/*. See docs/decisions.md D-017.'
+  '_schema'    = 'v3'
   parties      = $partyOut
   mps          = $mpOut
   chorusLines  = $chorusOut
@@ -207,6 +321,7 @@ $json = $doc | ConvertTo-Json -Depth 10
 [IO.File]::WriteAllText($OutPath, $json, [Text.UTF8Encoding]::new($false))
 
 Write-Output ("Wrote {0}" -f $OutPath)
-Write-Output ("  parties: {0}" -f $partyOut.Count)
-Write-Output ("  mps    : {0} ({1} MainCast)" -f $mpOut.Count, $MainCastUserIds.Count)
-Write-Output ("  chorus : {0}" -f $chorusOut.Count)
+Write-Output ("  parties  : {0}" -f $partyOut.Count)
+Write-Output ("  mps      : {0} ({1} MainCast)" -f $mpOut.Count, $MainCastUserIds.Count)
+Write-Output ("  chorus   : {0}" -f $chorusOut.Count)
+Write-Output ("  personas : {0}" -f $personasByName.Count)

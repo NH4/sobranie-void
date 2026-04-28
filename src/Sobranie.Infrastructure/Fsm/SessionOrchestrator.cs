@@ -54,6 +54,9 @@ public sealed partial class SessionOrchestrator(
         ? new Random(seed)
         : Random.Shared;
 
+    private int turnsOnCurrentProposal;
+    private int? currentProposalId;
+
     [LoggerMessage(Level = LogLevel.Information, Message = "SessionOrchestrator started. AutoStart={AutoStart}.")]
     private partial void LogStarted(bool autoStart);
 
@@ -66,6 +69,15 @@ public sealed partial class SessionOrchestrator(
     [LoggerMessage(Level = LogLevel.Information, Message = "No MainCast MPs in DB; session idle.")]
     private partial void LogNoCast();
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Proposal {ProposalId} promoted to InDebate: {Headline}.")]
+    private partial void LogProposalPromoted(int proposalId, string headline);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Proposal {ProposalId} concluded after {Turns} turns.")]
+    private partial void LogProposalConcluded(int proposalId, int turns);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No Queued proposals available; debate will use null proposal.")]
+    private partial void LogNoQueuedProposals();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         LogStarted(fsm.AutoStartSession);
@@ -74,6 +86,9 @@ public sealed partial class SessionOrchestrator(
         {
             state.Start();
         }
+
+        turnsOnCurrentProposal = 0;
+        currentProposalId = null;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -131,12 +146,7 @@ public sealed partial class SessionOrchestrator(
             return;
         }
 
-        var currentProposal = await db.Proposals
-            .AsNoTracking()
-            .Where(p => p.Status == ProposalStatus.InDebate)
-            .OrderByDescending(p => p.Id)
-            .FirstOrDefaultAsync(ct)
-            .ConfigureAwait(false);
+        var currentProposal = await EnsureCurrentProposalAsync(db, ct).ConfigureAwait(false);
 
         var recent = await db.Speeches
             .AsNoTracking()
@@ -188,6 +198,97 @@ public sealed partial class SessionOrchestrator(
                 ElapsedSeconds: generated.ElapsedSeconds,
                 UtteredAt: speech.UtteredAt),
             ct).ConfigureAwait(false);
+
+        turnsOnCurrentProposal++;
+
+        if (turnsOnCurrentProposal >= fsm.TurnsPerProposal)
+        {
+            await ConcludeAndPromoteAsync(db, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<Proposal?> EnsureCurrentProposalAsync(SobranieDbContext db, CancellationToken ct)
+    {
+        var existing = await db.Proposals
+            .AsNoTracking()
+            .Where(p => p.Status == ProposalStatus.InDebate)
+            .OrderByDescending(p => p.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (existing is not null && currentProposalId == existing.Id)
+        {
+            return existing;
+        }
+
+        if (existing is not null)
+        {
+            currentProposalId = existing.Id;
+            turnsOnCurrentProposal = 0;
+            return existing;
+        }
+
+        var next = await db.Proposals
+            .AsNoTracking()
+            .Where(p => p.Status == ProposalStatus.Queued)
+            .OrderBy(p => p.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (next is null)
+        {
+            currentProposalId = null;
+            turnsOnCurrentProposal = 0;
+            LogNoQueuedProposals();
+            return null;
+        }
+
+        next.Status = ProposalStatus.InDebate;
+        next.IntroducedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        currentProposalId = next.Id;
+        turnsOnCurrentProposal = 0;
+        LogProposalPromoted(next.Id, next.Headline);
+
+        return next;
+    }
+
+    private async Task ConcludeAndPromoteAsync(SobranieDbContext db, CancellationToken ct)
+    {
+        if (currentProposalId.HasValue)
+        {
+            var current = await db.Proposals.FindAsync([currentProposalId.Value], ct).ConfigureAwait(false);
+            if (current is not null)
+            {
+                current.Status = ProposalStatus.Concluded;
+                await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                LogProposalConcluded(current.Id, turnsOnCurrentProposal);
+            }
+        }
+
+        turnsOnCurrentProposal = 0;
+        currentProposalId = null;
+
+        var next = await db.Proposals
+            .AsNoTracking()
+            .Where(p => p.Status == ProposalStatus.Queued)
+            .OrderBy(p => p.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (next is null)
+        {
+            LogNoQueuedProposals();
+            return;
+        }
+
+        next.Status = ProposalStatus.InDebate;
+        next.IntroducedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        currentProposalId = next.Id;
+        LogProposalPromoted(next.Id, next.Headline);
     }
 
     private double SampleCadenceSeconds()

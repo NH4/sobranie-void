@@ -11,7 +11,7 @@ public enum SpeechKind
 public sealed class Speech
 {
     public long Id { get; init; }
-    public required string MPId { get; set; }
+    public string? MPId { get; set; }
     public MPProfile? MP { get; set; }
 
     public int? ProposalId { get; set; }

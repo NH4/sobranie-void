@@ -1,14 +1,17 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Sobranie.Domain;
+using Sobranie.Infrastructure.Persistence;
 
 namespace Sobranie.Infrastructure.Fsm;
 
 public sealed partial class SpeechGenerator(
     IChatClient chatClient,
+    SobranieDbContext db,
     IOptions<SobranieOptions> options)
 {
     private const string DefaultCorePrompt =
@@ -27,6 +30,19 @@ public sealed partial class SpeechGenerator(
         ArgumentNullException.ThrowIfNull(mp);
 
         var messages = BuildMessages(mp, currentProposal, recentSpeeches, rootOptions.SatireIntensity);
+        var promptText = string.Join("\n", messages.Select(m => $"{m.Role}: {GetContent(m)}"));
+        var promptHash = ComputeHash(promptText);
+
+        var callLog = new LlmCallLog
+        {
+            Model = rootOptions.Ollama.Model,
+            Purpose = "MainCastSpeech",
+            PromptHash = promptHash,
+            PromptPreview = promptText.Length > 256 ? promptText[..256] : promptText,
+            CalledAt = DateTimeOffset.UtcNow,
+        };
+        db.LlmCallLogs.Add(callLog);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var chatOptions = new ChatOptions
         {
@@ -59,12 +75,26 @@ public sealed partial class SpeechGenerator(
         sw.Stop();
         var raw = content.ToString();
         var sanitized = Sanitize(raw);
+        var wasFiltered = !ReferenceEquals(raw, sanitized) && raw != sanitized;
+
+        callLog.Output = sanitized;
+        callLog.OutputTokens = tokens;
+        callLog.GenerationSeconds = sw.Elapsed.TotalSeconds;
+        callLog.Rejected = wasFiltered;
+        callLog.RejectReason = wasFiltered ? "think_tags_stripped" : null;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new GeneratedSpeech(
             Content: sanitized,
             TokenCount: tokens,
             ElapsedSeconds: sw.Elapsed.TotalSeconds,
-            WasFiltered: !ReferenceEquals(raw, sanitized) && raw != sanitized);
+            WasFiltered: wasFiltered);
+    }
+
+    private static string ComputeHash(string input)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private static List<ChatMessage> BuildMessages(
@@ -126,6 +156,12 @@ public sealed partial class SpeechGenerator(
             "absurd" => mp.PersonaOverlayAbsurd ?? mp.PersonaOverlaySharp,
             _ => mp.PersonaOverlaySharp,
         };
+
+    private static string GetContent(ChatMessage m) => m.Contents
+        .Select(c => c as Microsoft.Extensions.AI.TextContent)
+        .Where(c => c is not null)
+        .Cast<Microsoft.Extensions.AI.TextContent>()
+        .FirstOrDefault()?.Text ?? string.Empty;
 
     private static string Truncate(string text, int maxLen)
         => text.Length <= maxLen ? text : text[..maxLen] + "…";

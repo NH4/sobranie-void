@@ -229,7 +229,6 @@ public sealed partial class SessionOrchestrator(
         }
 
         var next = await db.Proposals
-            .AsNoTracking()
             .Where(p => p.Status == ProposalStatus.Queued)
             .OrderBy(p => p.Id)
             .FirstOrDefaultAsync(ct)
@@ -271,7 +270,6 @@ public sealed partial class SessionOrchestrator(
         currentProposalId = null;
 
         var next = await db.Proposals
-            .AsNoTracking()
             .Where(p => p.Status == ProposalStatus.Queued)
             .OrderBy(p => p.Id)
             .FirstOrDefaultAsync(ct)

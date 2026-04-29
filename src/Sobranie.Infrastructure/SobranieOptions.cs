@@ -33,7 +33,7 @@ public sealed class OllamaOptions
     public double Temperature { get; set; } = 0.8;
     public double TopP { get; set; } = 0.9;
     public double RepeatPenalty { get; set; } = 1.1;
-    public int MaxOutputTokens { get; set; } = 180;
+    public int MaxOutputTokens { get; set; } = 450;
 }
 
 public sealed class FsmOptions

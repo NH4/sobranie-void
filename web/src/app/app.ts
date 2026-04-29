@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { SobranieHubService } from './sobranie-hub.service';
 import { firstValueFrom } from 'rxjs';
 
-const ORCHESTRATOR_BASE = 'http://localhost:5000';
+const ORCHESTRATOR_BASE = 'http://localhost:5139';
 
 @Component({
   selector: 'app-root',

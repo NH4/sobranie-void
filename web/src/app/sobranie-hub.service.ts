@@ -36,7 +36,7 @@ export interface Proposal {
   turnsPerProposal: number;
 }
 
-const ORCHESTRATOR_BASE = 'http://localhost:5000';
+const ORCHESTRATOR_BASE = 'http://localhost:5139';
 
 const PARTIES: Record<string, { color: string; short: string }> = {
   vmro_dpmne: { color: '#C8102E', short: 'ВМРО' },

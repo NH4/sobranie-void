@@ -87,7 +87,7 @@ public sealed partial class SobranieDataSeeder(
             };
             db.MPs.Add(mp);
 
-            foreach (var sm in m.SignatureMoves)
+            foreach (var sm in m.SignatureMoves ?? [])
             {
                 db.SignatureMoves.Add(new SignatureMove
                 {
@@ -140,12 +140,33 @@ public sealed partial class SobranieDataSeeder(
         string? PersonaOverlayGentle,
         string? PersonaOverlaySharp,
         string? PersonaOverlayAbsurd,
-        List<SignatureMoveDto> SignatureMoves);
+        [property: JsonPropertyName("signatureMoves"), JsonConverter(typeof(SignatureMovesListConverter))]
+        List<SignatureMoveDto>? SignatureMoves);
 
     private sealed record SignatureMoveDto(
         string Label,
         string Exemplar,
         double? TriggerWeight);
+
+    private sealed class SignatureMovesListConverter : JsonConverter<List<SignatureMoveDto>?>
+    {
+        public override List<SignatureMoveDto>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null)
+                return null;
+            if (reader.TokenType == JsonTokenType.StartArray)
+                return JsonSerializer.Deserialize<List<SignatureMoveDto>>(ref reader, options);
+            if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndObject) { }
+                return null;
+            }
+            return null;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<SignatureMoveDto>? value, JsonSerializerOptions options)
+            => JsonSerializer.Serialize(writer, value, options);
+    }
 
     private sealed record ChorusDto(
         string PartyId,

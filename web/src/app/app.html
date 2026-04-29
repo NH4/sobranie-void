@@ -1,22 +1,94 @@
 <main class="shell">
+
   <header>
-    <h1>{{ title() }}</h1>
-    <span class="conn" [class.online]="hub.isConnected()">
-      hub: {{ hub.connectionState() }}
-    </span>
+    <div class="title-block">
+      <h1>{{ title() }}</h1>
+      <span class="conn" [class.online]="hub.isConnected()">
+        hub: {{ hub.connectionState() }}
+      </span>
+    </div>
+    <div class="session-badge" [class.running]="sessionRunning()">
+      <span class="dot"></span>
+      {{ sessionRunning() ? 'Сесија активна' : 'Сесија запирана' }}
+    </div>
   </header>
 
+  <section class="proposal-bar" [class.active]="currentProposal()">
+    @if (currentProposal(); as prop) {
+      <div class="proposal-info">
+        <span class="proposal-label">Дневен ред</span>
+        <span class="proposal-headline">{{ prop.headline }}</span>
+        <span class="proposal-turns">{{ turnsCompleted() }} / {{ turnsPer() }}</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" [style.width.%]="(turnsCompleted() / turnsPer()) * 100"></div>
+      </div>
+    } @else {
+      <div class="proposal-info">
+        <span class="proposal-label">Нема активен предлог</span>
+        <span class="proposal-sublabel">Покренете сесија за да започне дебата</span>
+      </div>
+    }
+  </section>
+
   <section class="controls">
-    <button type="button" (click)="triggerSmokeSpeech()" [disabled]="busy()">
-      {{ busy() ? 'Generating...' : 'Trigger smoke speech' }}
-    </button>
+    <div class="control-row">
+      <button type="button" class="btn-primary" (click)="toggleSession()">
+        {{ sessionRunning() ? 'Запри сесија ⏹' : 'Покрени сесија ▶' }}
+      </button>
+      <button type="button" class="btn-secondary" (click)="triggerSmokeSpeech()">
+        Тест говор
+      </button>
+      <button type="button" class="btn-ghost" (click)="clearHansard()">
+        Исчисти
+      </button>
+    </div>
     @if (lastError(); as err) {
       <p class="error">{{ err }}</p>
     }
   </section>
 
-  <section class="hansard">
-    <h2>Hansard</h2>
-    <pre>{{ hub.transcript() || '(no speeches yet)' }}</pre>
+  <section class="debate">
+    <div class="speech-column">
+      <h2>Говори <span class="count">{{ mainCastSpeeches().length }}</span></h2>
+      <div class="cards">
+        @for (speech of mainCastSpeeches(); track speech.id) {
+          <div class="speech-card" [class.streaming]="speech.isStreaming">
+            <div class="card-header" [style.border-left-color]="speech.partyColor">
+              <div class="mp-info">
+                <span class="mp-name">{{ speech.mpName }}</span>
+                <span class="party-tag" [style.background]="speech.partyColor">{{ speech.partyShort }}</span>
+              </div>
+              <span class="speech-meta">{{ speech.tokenCount }} токена · {{ speech.elapsedSeconds.toFixed(1) }}с</span>
+            </div>
+            <div class="card-body">
+              <p>{{ speech.content }}</p>
+            </div>
+          </div>
+        }
+        @if (mainCastSpeeches().length === 0) {
+          <div class="empty-state">
+            <p>Се уште нема говори. Покренете сесија.</p>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="chorus-column">
+      <h2>Хор <span class="count">{{ chorusSpeeches().length }}</span></h2>
+      <div class="bubble-list">
+        @for (bubble of chorusSpeeches(); track bubble.id) {
+          <div class="chorus-bubble" [style.border-left-color]="bubble.partyColor">
+            <p>{{ bubble.content }}</p>
+          </div>
+        }
+        @if (chorusSpeeches().length === 0) {
+          <div class="empty-state">
+            <p>Хор реакции ќе се појават тука.</p>
+          </div>
+        }
+      </div>
+    </div>
   </section>
+
 </main>
